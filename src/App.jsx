@@ -1,163 +1,194 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createClient } from '@supabase/supabase-js';
+import './App.css'; // Import the updated CSS file
 
-import { createClient } from '@supabase/supabase-js'
+// Initialize Supabase client
+const supabaseUrl = 'your supabase url'; // Replace with your Supabase URL
+const supabaseAnonKey = 'your AnonKey'; // Replace with your Supabase anon key
 
-const supabase = createClient('YOUR_SUPABASE_URL', 'YOUR_SUPABASE_ANON_KEY')
-
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 function App() {
   const [user, setUser] = useState(null);
   const [todos, setTodos] = useState([]);
-  const [newTodo, setNewTodo] = useState('');
+  const [newTodoTitle, setNewTodoTitle] = useState('');
+  const [editingTodoId, setEditingTodoId] = useState(null);
+  const [editingTodoTitle, setEditingTodoTitle] = useState('');
 
+  // Authentication state
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+
+  // Listen for authentication state changes
   useEffect(() => {
-    const loginEvent = async () => {
-      const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-        console.log(event, session);
-        
-        if (event === 'INITIAL_SESSION') {
-          // handle initial session if needed
-          setUser(null);
-          setTodos([]);
-        } else if (event === 'SIGNED_IN') {
-          setUser(session.user);
-          const fetchTodos = await fetchUserTasks(session.user.id); // use session.user.id
-          setTodos(fetchTodos);
-        } else if (event === 'SIGNED_OUT') {
-          setUser(null);
-          setTodos([]);
-        }
-      });
-  
-      return () => {
-        authListener.subscription.unsubscribe();
-      };
-    }
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session && session.user) {
+        setUser(session.user);
+        fetchTodos();
+      } else {
+        setUser(null);
+        setTodos([]);
+      }
+    });
 
-    loginEvent();
-
+    // Check for existing session
     const checkSession = async () => {
-      const { data: sessionData, error } = await supabase.auth.getSession();
-
-      if (sessionData?.session) {
-        setUser(sessionData.session.user);
-        const fetchTodos = await fetchUserTasks(sessionData.session.user.id)
-        setTodos(fetchTodos)
-      } else if (error) {
-        console.error('Error fetching session:', error.message);
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if (error) console.error(error);
+      if (session?.user) {
+        setUser(session.user);
+        fetchTodos();
       }
     };
-
     checkSession();
-    
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
   }, []);
-  
 
-  async function fetchUserTasks(userId) {
-    const { data: tasks, error } = await supabase
+  // Fetch todos from Supabase
+  const fetchTodos = async () => {
+    const { data, error } = await supabase
       .from('todos')
       .select('*')
-      .eq('user_id', userId);
-  
-    if (error) {
-      console.error('Error fetching todos:', error);
-      return [];
-    }
-  
-    return tasks;
-  }
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+    if (error) console.error('Error fetching todos:', error.message);
+    else setTodos(data);
+  };
 
-  // Replaced Firebase auth with Supabase auth
-  const signIn = async () => {
-    const { user } = await supabase.auth.signInWithOAuth({
-      provider: 'google'
-    })
-    setUser(user)
-  }
-
-  const signOutUser = async () => {
-    const { error } = await supabase.auth.signOut()
-    console.log(error)
-  }
-
-  const addTodo = async (e) => {
+  // Handle sign in
+  const handleSignIn = async (e) => {
     e.preventDefault();
-    if (newTodo.trim() === '') return;
-    const { data, error } = await supabase
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    if (error) alert(error.message);
+  };
+
+  // Handle sign out
+  const handleSignOut = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) alert(error.message);
+  };
+
+  // Add a new todo
+  const handleAddTodo = async (e) => {
+    e.preventDefault();
+    if (newTodoTitle.trim() === '') return;
+    const { error } = await supabase
       .from('todos')
-      .insert({ title:newTodo, user_id: user.id,  completed: false});
-
-    if (error) {
-      console.error(error.message)
-    } else {
-      console.log(data)
-      // After adding a new todo, refetch all todos
-      const { data: todos, error: fetchError } = await supabase
-      .from('todos')
-      .select('*')
-      .eq('user_id', user.id);
-
-      if (fetchError) {
-        console.error('Error fetching todos:', fetchError.message);
-      } else {
-        setTodos(todos); // Update the todos state with the latest data
-      }
-
-      setNewTodo('');
+      .insert([{ title: newTodoTitle, user_id: user.id }]);
+    if (error) console.error('Error adding todo:', error.message);
+    else {
+      setNewTodoTitle('');
+      fetchTodos();
     }
-  }
-  
-  const deleteTodo = async (id) => {
-    const { data, error } = await supabase
+  };
+
+  // Edit a todo
+  const handleEditTodo = (id, title) => {
+    setEditingTodoId(id);
+    setEditingTodoTitle(title);
+  };
+
+  // Update a todo
+  const handleUpdateTodo = async (e) => {
+    e.preventDefault();
+    if (editingTodoTitle.trim() === '') return;
+    const { error } = await supabase
+      .from('todos')
+      .update({ title: editingTodoTitle })
+      .eq('id', editingTodoId);
+    if (error) console.error('Error updating todo:', error.message);
+    else {
+      setEditingTodoId(null);
+      setEditingTodoTitle('');
+      fetchTodos();
+    }
+  };
+
+  // Delete a todo
+  const handleDeleteTodo = async (id) => {
+    const { error } = await supabase
       .from('todos')
       .delete()
-      .match({ id });
-
-      if (error) {
-        console.error(error.message)
-      } else {
-        console.log(data)
-        // After adding a new todo, refetch all todos
-        const { data: todos, error: fetchError } = await supabase
-        .from('todos')
-        .select('*')
-        .eq('user_id', user.id);
-  
-        if (fetchError) {
-          console.error('Error fetching todos:', fetchError.message);
-        } else {
-          setTodos(todos); // Update the todos state with the latest data
-        }
-      }
-  }
+      .eq('id', id);
+    if (error) console.error('Error deleting todo:', error.message);
+    else fetchTodos();
+  };
 
   return (
-    <div className="App">
-      <h1>Supabase Todo App</h1>
+    <div className="app-container">
+      <h1>📝 Vultr's To do app</h1>
       {user ? (
-        <>
-          <p>Welcome, {user.user_metadata.full_name || ''}!</p>
-          <button onClick={signOutUser}>Sign Out</button>
-          <form onSubmit={addTodo}>
+        <div>
+          <div className="header">
+            <p>Welcome, {user.email}</p>
+            <button className="sign-out-button" onClick={handleSignOut}>Sign Out</button>
+          </div>
+
+          <form onSubmit={handleAddTodo} className="todo-form">
             <input
               type="text"
-              value={newTodo}
-              onChange={(e) => setNewTodo(e.target.value)}
-              placeholder="Add a new todo"
+              placeholder="What needs to be done?"
+              value={newTodoTitle}
+              onChange={(e) => setNewTodoTitle(e.target.value)}
             />
-            <button type="submit">Add Todo</button>
+            <button type="submit">Add</button>
           </form>
-          <ul>
+
+          <ul className="todo-list">
             {todos.map((todo) => (
               <li key={todo.id}>
-                {todo.title}
-                <button onClick={() => deleteTodo(todo.id)}>Delete</button>
+                {editingTodoId === todo.id ? (
+                  <form onSubmit={handleUpdateTodo} className="edit-form">
+                    <input
+                      type="text"
+                      value={editingTodoTitle}
+                      onChange={(e) => setEditingTodoTitle(e.target.value)}
+                    />
+                    <button type="submit">Save</button>
+                    <button type="button" onClick={() => setEditingTodoId(null)}>Cancel</button>
+                  </form>
+                ) : (
+                  <div className="todo-item">
+                    <span>{todo.title}</span>
+                    <div className="todo-actions">
+                      <button onClick={() => handleEditTodo(todo.id, todo.title)}>✏️</button>
+                      <button onClick={() => handleDeleteTodo(todo.id)}>🗑️</button>
+                    </div>
+                  </div>
+                )}
               </li>
             ))}
           </ul>
-        </>
+        </div>
       ) : (
-        <button onClick={signIn}>Sign In with Google</button>
+        <div className="auth-container">
+          <form onSubmit={handleSignIn} className="auth-form">
+            <h2>Sign In</h2>
+            <input
+              type="email"
+              placeholder="Email"
+              value={email}
+              autoComplete="username"
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+            <input
+              type="password"
+              placeholder="Password"
+              value={password}
+              autoComplete="current-password"
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+            <button type="submit">Sign In</button>
+          </form>
+        </div>
       )}
     </div>
   );

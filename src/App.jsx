@@ -3,9 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import './App.css'; // Import the updated CSS file
 
 // Initialize Supabase client
-const supabaseUrl = 'your supabase url'; // Replace with your Supabase URL
-const supabaseAnonKey = 'your AnonKey'; // Replace with your Supabase anon key
-
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 function App() {
